@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:h2:~/data/demo
+    url: jdbc:h2:~/data/codesoom-spring-week7-assignment-1
   jpa:
     hibernate:
       ddl-auto: update

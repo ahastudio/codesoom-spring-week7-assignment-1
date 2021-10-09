@@ -1,7 +1,5 @@
 import frisby from 'frisby';
 
-frisby.baseUrl('http://localhost:8080');
-
 const { Joi } = frisby;
 
 const userSchema = Joi.object({
@@ -10,131 +8,155 @@ const userSchema = Joi.object({
   email: Joi.string(),
 });
 
+const BASE_URL = 'http://localhost:8080';
+
+frisby.baseUrl(BASE_URL);
+
 describe('Users', () => {
-  let user;
+  let count = 0;
 
-  const createUser = () => ({
-    email: `${new Date().getTime()}@test.com`,
-    name: 'testuser',
-    password: 'password',
-  });
-
-  beforeAll(async () => {
-    user = {
-      email: `${new Date().getTime()}@test.com`,
+  function generateUserData() {
+    count += 1;
+    return {
+      email: `${new Date().getTime()}-${count}@test.com`,
       name: 'testuser',
       password: 'password',
     };
-    const { json: userResponse } = await frisby.post('/users', user);
-    user.id = userResponse.id;
+  }
+
+  async function createUser(userData) {
+    const { json } = await frisby.post('/users', userData);
+    const { id } = json;
+    return { id };
+  }
+
+  async function loginUser(userData) {
     const { json } = await frisby.post('/session', {
-      email: user.email,
-      password: user.password,
+      email: userData.email,
+      password: userData.password,
     });
-
     const { accessToken } = json;
+    return { accessToken };
+  }
 
+  async function setupUser() {
+    const userData = generateUserData();
+    const { id } = await createUser(userData);
+    const { accessToken } = await loginUser(userData);
+    return { id, accessToken };
+  }
+
+  function setupAccessToken(accessToken) {
     frisby.globalSetup({
       request: {
-        baseUrl: 'http://localhost:8080',
+        baseUrl: BASE_URL,
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       },
     });
-  });
+  }
 
   describe('POST /users', () => {
+    let userData = {};
+
+    beforeEach(() => {
+      userData = generateUserData();
+    });
+
     context('with correct data', () => {
-      it('responses user', async () => {
-        await frisby.post('/users', createUser())
+      it('responds with user', async () => {
+        await frisby.post('/users', userData)
           .expect('status', 201)
           .expect('jsonTypes', userSchema);
       });
     });
 
     context('without required parameter', () => {
-      it('responses 400 error', async () => {
-        const promises = [
-          { name: '' },
-          { email: '' },
-          { password: '' },
-        ].map((it) => frisby.post('/users', {
-          ...createUser(),
-          ...it,
-        }).expect('status', 400));
-
-        await Promise.all(promises);
+      it('responds 400 error', async () => {
+        await Promise.all((
+          ['name', 'email', 'password'].map(async (key) => {
+            const data = { ...userData, [key]: '' };
+            await frisby.post('/users', data)
+              .expect('status', 400);
+          })
+        ));
       });
     });
   });
 
   describe('PATCH /users/{id}', () => {
-    const userData = {
+    const newUserData = {
       name: 'updated name',
       password: '12345678',
     };
 
-    let id;
+    let userId;
+
+    beforeEach(async () => {
+      const { id, accessToken } = await setupUser();
+      setupAccessToken(accessToken);
+
+      userId = id;
+    });
 
     context('with existing user', () => {
-      beforeEach(async () => {
-        id = user.id;
-      });
-
-      it('responses updated user', async () => {
-        const { json } = await frisby.patch(`/users/${id}`, userData)
+      it('responds with updated user', async () => {
+        const { json } = await frisby.patch(`/users/${userId}`, newUserData)
           .expect('status', 200);
 
-        expect(json.name).toBe(userData.name);
+        expect(json.name).toBe(newUserData.name);
       });
     });
 
     context('with others', () => {
       beforeEach(() => {
-        id = 9999;
+        userId = 9999;
       });
 
-      it('responses Forbidden', async () => {
-        await frisby.patch(`/users/${id}`, userData)
+      it('responds Forbidden', async () => {
+        await frisby.patch(`/users/${userId}`, newUserData)
           .expect('status', 403);
       });
     });
 
     context('with wrong parameter', () => {
-      it('responses Bad Request', async () => {
-        const promises = [
-          { name: '' },
-          { password: '' },
-        ].map((it) => frisby.patch(`/users/${id}`, { ...userData, ...it })
-          .expect('status', 400));
-
-        await Promise.all(promises);
+      it('responds Bad Request', async () => {
+        await Promise.all((
+          ['name', 'password'].map(async (key) => {
+            const data = { ...newUserData, [key]: '' };
+            await frisby.patch(`/users/${userId}`, data)
+              .expect('status', 400);
+          })
+        ));
       });
     });
   });
 
   describe('DELETE /users/{id}', () => {
-    let id;
+    let userId;
+
+    beforeEach(async () => {
+      const { id, accessToken } = await setupUser();
+      setupAccessToken(accessToken);
+
+      userId = id;
+    });
 
     context('with existing user', () => {
-      beforeEach(() => {
-        id = user.id;
-      });
-
-      it('responses No Content', async () => {
-        await frisby.del(`/users/${id}`)
+      it('responds No Content', async () => {
+        await frisby.del(`/users/${userId}`)
           .expect('status', 204);
       });
     });
 
     context('with not existing user', () => {
       beforeEach(() => {
-        id = 9999;
+        userId = 9999;
       });
 
-      it('responses not found', async () => {
-        await frisby.del(`/users/${id}`)
+      it('responds not found', async () => {
+        await frisby.del(`/users/${userId}`)
           .expect('status', 404);
       });
     });
